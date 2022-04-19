@@ -57,12 +57,12 @@ with torch.set_grad_enabled(False):
             'Class_6_Score',
             'Class_7_Score',
             'Class_8_Score',
-            'Class_9_Score']
+            'Class_9_Score',
+            'Golden']
         writer_inj_post.writerow(title_row)
         writer_inj_pre.writerow(title_row)
         f_inj_post.flush()
         f_inj_pre.flush()
-
 
         for image_index, data in enumerate(loader):
             x, y_true = data
@@ -74,7 +74,8 @@ with torch.set_grad_enabled(False):
             for index in range(0, len(y_pred)):
                 output_list.append(np.concatenate([
                     [image_index * loader.batch_size + index],
-                    y_pred[index].cpu().numpy()
+                    y_pred[index].cpu().numpy(),
+                    [int(y_pred[index].argmax().cpu())]
                 ]))
             writer_inj_pre.writerows(output_list)
 
@@ -85,6 +86,7 @@ with torch.set_grad_enabled(False):
                 output_list.append(np.concatenate([
                     [image_index * loader.batch_size + index],
                     y_pred[index].cpu().numpy(),
+                    [int(y_pred[index].argmax().cpu())]
                 ]))
             writer_inj_post.writerows(output_list)
 
