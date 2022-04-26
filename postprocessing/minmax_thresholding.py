@@ -1,7 +1,8 @@
-from postprocessing.utils import check_against_threshold
+from postprocessing.InputPreprocessing import InputPreprocessing
 
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 
 
 n_classes = 10
@@ -16,34 +17,29 @@ gamma_low = 1.5
 gamma_high = 1
 
 dict_list = []
-output_file = f'metrics/{net_name}_{seed}.csv'
+output_file = f'metrics/{net_name}_{seed}_minmax.csv'
 
-for gamma_low in np.linspace(5, 9, 20):
+input_preprocessing = InputPreprocessing(runs_to_load=10,)
 
-    threshold_low = [pre_softmax_df[pre_softmax_df.Golden == class_index].min().to_list()[class_index] * gamma_low for class_index in np.arange(0, n_classes)]
-    threshold_high = [pre_softmax_df[pre_softmax_df.Golden == class_index].max().to_list()[class_index] * gamma_high for class_index in np.arange(0, n_classes)]
+critical_faults, non_critical_faults = input_preprocessing.extract_summarized_max_statistics()
 
-    total_fn, total_tp, total_tn, total_fp = check_against_threshold(threshold_high=threshold_high,
-                                                                     threshold_low=threshold_low,
-                                                                     runs_to_load=1000,
-                                                                     n_classes=n_classes,
-                                                                     net_name=net_name,
-                                                                     seed=seed)
+# Critical Faults is the dataset containing all the true positive
+# Non-Critical Faults is the dataset containing all the true negative (N)
+# We can set the FPR by using a quantile over the non-critical
+# FPR = FP / N = FP / (FP + TN)
 
-    fpr = total_fp / (total_fp + total_tn)
-    tpr = total_tp / (total_tp + total_fn)
+pbar = tqdm(np.linspace(0, 1, 100), desc='Computing Metrics')
+for fpr in pbar:
+    threshold_low, threshold_high = np.quantile(non_critical_faults.Max.values, [fpr/2, 1 - (fpr/2)])
 
-    print(f'FPR [{gamma_low:.2f}]: {fpr:.4f}')
-    print(f'TPR [{gamma_low:.2f}]: {tpr:.4f}')
+    # Once you fix the FPR, you can compute the TPR
+    tp = len(critical_faults[(critical_faults.Max < threshold_low) | (critical_faults.Max > threshold_high)])
+    tpr = tp / len(critical_faults)
 
-    dict_list.append({'Gamma_Low': gamma_low,
-                      'Gamma_High': gamma_high,
-                      'FN': total_fn,
-                      'TP': total_tp,
-                      'TN': total_tn,
-                      'FP': total_fp,
-                      'fpr': fpr,
+    dict_list.append({'fpr': fpr,
                       'tpr': tpr})
+
+    pbar.set_postfix_str(f'FPR: {fpr:.3f} | TPR: {tpr:.3f}')
 
 df = pd.DataFrame(dict_list)
 df.to_csv(output_file)
