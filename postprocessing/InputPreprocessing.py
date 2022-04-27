@@ -49,7 +49,9 @@ class InputPreprocessing:
         pbar = tqdm(pd.read_csv(self.filename_post_softmax, chunksize=self.chunksize, iterator=True),
                     desc='Finding nan',
                     total=self.number_of_chunks)
-        for post_softmax_chunk in pbar:
+        for chunk_index, post_softmax_chunk in enumerate(pbar):
+            if chunk_index == 31:
+                print(31)
             nan_index.append(list(post_softmax_chunk.loc[pd.isna(post_softmax_chunk).any(axis=1)].index))
 
         return nan_index
@@ -83,7 +85,7 @@ class InputPreprocessing:
         except FileNotFoundError:
             na_index = self._find_na_index()
 
-            pbar = tqdm(pd.read_csv(self.filename_pre_softmax, chunksize=self.chunksize),
+            pbar = tqdm(pd.read_csv(self.filename_pre_softmax, chunksize=self.chunksize, iterator=True),
                         desc='Preprocessing',
                         total=self.number_of_chunks)
             for chunk_index, pre_softmax_chunk in enumerate(pbar):
@@ -118,8 +120,11 @@ class InputPreprocessing:
         :return:
         """
 
-        filename_pre_softmax_critical = f'{self.dir_results}/{self.seed}_critical_pre_softmax.csv'
-        filename_pre_softmax_non_critical = f'{self.dir_results}/{self.seed}_non_critical_pre_softmax.csv'
+        folder_name = f'{self.dir_results}/minmax'
+        os.makedirs(folder_name, exist_ok=True)
+
+        filename_pre_softmax_critical = f'{folder_name}/{self.seed}_critical_pre_softmax.csv'
+        filename_pre_softmax_non_critical = f'{folder_name}/{self.seed}_non_critical_pre_softmax.csv'
 
         try:
             critical_faults = pd.read_csv(filename_pre_softmax_critical)
@@ -127,18 +132,11 @@ class InputPreprocessing:
         except FileNotFoundError:
             na_index = self._find_na_index()
 
-            pbar = tqdm(pd.read_csv(self.filename_pre_softmax, chunksize=self.chunksize),
+            pbar = tqdm(pd.read_csv(self.filename_pre_softmax, chunksize=self.chunksize, iterator=True),
                         desc='Preprocessing',
                         total=self.number_of_chunks)
             for chunk_index, pre_softmax_chunk in enumerate(pbar):
-                pre_softmax_chunk = pre_softmax_chunk.drop(na_index[chunk_index])
-                pre_softmax_chunk = pre_softmax_chunk.astype(dtype=self.column_types)
-                pre_softmax_chunk = pre_softmax_chunk.dropna()
-
-                pre_softmax_chunk = pre_softmax_chunk.drop('Golden', axis=1)
-                pre_softmax_chunk = pre_softmax_chunk.merge(self.golden_df[['ImageIndex', 'Golden']], how='left', on='ImageIndex')
-
-                pre_softmax_chunk['Faulty'] = pre_softmax_chunk.iloc[:, 3:-3].values.argmax(axis=1)
+                pre_softmax_chunk = self._chunk_preprocessing(pre_softmax_chunk, na_index[chunk_index])
 
                 max_pred = pre_softmax_chunk.iloc[:, 3:-4].max(axis=1)
                 max_pred.name = 'Max'
