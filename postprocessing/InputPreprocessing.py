@@ -39,6 +39,7 @@ class InputPreprocessing:
 
         self.filename_pre_softmax_golden = f'{self.dir_results}/golden_test_pre_softmax.csv'
         self.golden_df = pd.read_csv(self.filename_pre_softmax_golden)
+        self.golden_df = self.golden_df.drop('Golden', axis=1)
         self.golden_df['Golden'] = self.golden_df.iloc[:, 1:].values.argmax(axis=1)
 
     def _find_na_index(self):
