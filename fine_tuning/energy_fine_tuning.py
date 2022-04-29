@@ -13,8 +13,8 @@ import argparse
 import numpy as np
 
 from models.resnet import resnet20
-from models.utils import load_from_dict
-from utils import progress_bar
+# from models.utils import load_from_dict
+# from utils import progress_bar
 import torchvision.transforms as trn
 
 from tqdm import tqdm
@@ -65,19 +65,19 @@ def main():
         trainset,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=1)
+        num_workers=0)
 
     train_loader_out = torch.utils.data.DataLoader(
         ood_data,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=1)
+        num_workers=0)
 
 
     testset = torchvision.datasets.CIFAR10(
         root='./weights', train=False, download=True, transform=transform_test)
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=100, shuffle=False, num_workers=2)
+        testset, batch_size=100, shuffle=False, num_workers=0)
 
     classes = ('plane', 'car', 'bird', 'cat', 'deer',
                'dog', 'frog', 'horse', 'ship', 'truck')
@@ -85,7 +85,7 @@ def main():
     # Model
     print('==> Building model..')
     net = resnet20()
-    load_from_dict(net, device, '../models/pretrained_models/resnet20-trained.th')
+    # load_from_dict(net, device, '../models/pretrained_models/resnet20-trained.th')
     net = net.to(device)
     if device == 'cuda':
         net = torch.nn.DataParallel(net)
@@ -106,29 +106,33 @@ def main():
 
     best_acc = 0
     for epoch in range(0, 100):
-        train(epoch, net, train_loader_in, train_loader_out, optimizer, batches=int(len(trainset)/args.batch_size))
-        test(epoch, net, testloader, device, criterion, best_acc)
+        train(epoch, net, train_loader_in, train_loader_out, criterion, optimizer, batches=int(len(trainset)/args.batch_size))
+        best_acc = test(epoch, net, testloader, device, criterion, best_acc, batches=int(len(testset)/args.batch_size))
 
 
 # Training
-def train(epoch, net, train_loader_in, train_loader_out, optimizer, batches, m_in=-25, m_out=-7):
+def train(epoch, net, train_loader_in, train_loader_out, criterion, optimizer, batches, m_in=-25, m_out=-7):
     print('\nEpoch: %d' % epoch)
     net.train()
+
+    total = 0
+    correct = 0
     train_loss = 0
-    pbar = tqdm(zip(train_loader_in, train_loader_out), total=batches)
+
+    pbar = tqdm(zip(train_loader_in, train_loader_out), total=batches, desc='Training')
     for in_set, out_set in pbar:
         data = torch.cat((in_set[0], out_set[0]), 0)
         target = in_set[1]
 
         data, target = data.cuda(), target.cuda()
+        optimizer.zero_grad()
 
         # forward
         x = net(data)
 
         # backward
-        optimizer.zero_grad()
 
-        loss = F.cross_entropy(x[:len(in_set[0])], target)
+        loss = criterion(x[:len(in_set[0])], target)
         # cross-entropy from softmax distribution to uniform distribution
         Ec_out = -torch.logsumexp(x[len(in_set[0]):], dim=1)
         Ec_in = -torch.logsumexp(x[:len(in_set[0])], dim=1)
@@ -137,18 +141,24 @@ def train(epoch, net, train_loader_in, train_loader_out, optimizer, batches, m_i
         loss.backward()
         optimizer.step()
 
-        pbar.set_postfix({'Loss': loss})
+        _, predicted = x[:len(in_set[0])].max(1)
+        total += target.size(0)
+        correct += predicted.eq(target).sum().item()
+
+        pbar.set_postfix({'Loss': loss.item(),
+                          'Accuracy': f'{100 * correct/total:.1f}'})
 
         train_loss += loss.item()
 
 
-def test(epoch, net, testloader, device, criterion, best_acc):
+def test(epoch, net, testloader, device, criterion, best_acc, batches):
     net.eval()
     test_loss = 0
     correct = 0
     total = 0
     with torch.no_grad():
-        for batch_idx, (inputs, targets) in enumerate(testloader):
+        pbar = tqdm(testloader, total=batches, desc='Testing')
+        for batch_idx, (inputs, targets) in enumerate(pbar):
             inputs, targets = inputs.to(device), targets.to(device)
             outputs = net(inputs)
             loss = criterion(outputs, targets)
@@ -158,9 +168,7 @@ def test(epoch, net, testloader, device, criterion, best_acc):
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
 
-            progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                         % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
-
+            pbar.set_postfix({'Accuracy': f'{100 * correct / total:.1f}'})
     # Save checkpoint.
     acc = 100.*correct/total
     if acc > best_acc:
@@ -172,6 +180,9 @@ def test(epoch, net, testloader, device, criterion, best_acc):
         if not os.path.isdir('tuned_models'):
             os.mkdir('tuned_models')
         torch.save(state, './tuned_models/energy.pth')
+        best_acc = acc
+    return best_acc
+
 
 if __name__ == '__main__':
     main()
