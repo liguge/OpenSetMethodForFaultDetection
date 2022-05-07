@@ -3,7 +3,7 @@ from torchvision import transforms
 from torchvision.datasets import CIFAR10
 
 
-def load_CIFAR10_datasets(train_batch_size=32, train_split=0.8, test_batch_size=1):
+def load_CIFAR10_datasets(train_batch_size=32, train_split=0.8, test_batch_size=1, test_image_per_class=None):
 
     transform_train = transforms.Compose([
         transforms.RandomCrop(32, padding=4),                                       # Crop the image to 32x32
@@ -25,6 +25,15 @@ def load_CIFAR10_datasets(train_batch_size=32, train_split=0.8, test_batch_size=
                            train=False,
                            transform=transform_test,
                            download=True)
+
+    if test_image_per_class is not None:
+        selected_test_list = []
+        image_class_counter = [0] * 10
+        for test_image in test_dataset:
+            if image_class_counter[test_image[1]] < test_image_per_class:
+                selected_test_list.append(test_image)
+                image_class_counter[test_image[1]] += 1
+        test_dataset = selected_test_list
 
     # Split the training set into training and validation
     train_split_length = int(len(train_dataset) * train_split)
